@@ -166,3 +166,39 @@ The revised plan was more specific about file boundaries, the location of error 
 - Invalid stored due date — Raised `ValidationError` with status 422.
 - Empty task store — `create_task()` assigned ID 1.
 - Phase 3 implementation changes — Limited to `services/tasks.py`; earlier uncommitted `due_date` changes from Phase 1 remained in that file.
+
+---
+
+## Week 5 Drill 2 — Subagent Decomposition
+
+### Prompt
+
+> Add a tagging system. A task has zero or more tags (lowercase, max 32 chars, no spaces, stored in a join table called task_tags). Endpoints: POST /tasks/{id}/tags, DELETE /tasks/{id}/tags/{tag}, GET /tasks?tag={tag}. Decompose the feature into discrete subagent tasks before writing code.
+
+### What Claude Did
+
+I required exactly four subagents matching the project layers: SA-1 data/storage, SA-2 service, SA-3 API/routes, and SA-4 tests. Each had a stated Input, Task, Output, Constraint, and Hand-off, and `pytest -q` was required after each one. The full decomposition is in `DECOMPOSITION_DRILL2.md`.
+
+- **SA-1** created `repositories/__init__.py` and `repositories/task_tags.py`. The `task_tags` join table is a module-level `TASK_TAGS` set of `(task_id, tag)` pairs, because the project has only an in-memory `TASKS` dictionary and no database. SA-1 ran its own gate: `pytest -q` was 6 passed before and after.
+- **SA-2** proposed the tag functions, but its writes were denied. Its first attempt was fully denied. On a retry it added the import line to `services/tasks.py`, then the append of the functions was denied. After I reviewed the code, the orchestrating session applied the five functions (`_validate_tag`, `add_tag`, `remove_tag`, `get_tags`, `list_tasks`) in `services/tasks.py`.
+- **SA-3** captured the before listing of route registrations and proposed the routes, but its edits to `routes/api.py` were denied. After review and revisions, the orchestrating session applied the three routes and the consolidated imports, then compared the registrations before and after. The four existing application routes were unchanged.
+- **SA-4** drafted the tests, but its write was denied. The orchestrating session wrote the suite, dry-ran it from a scratchpad file (64 passed), and then created `tests/test_tags.py` with 58 tests after approval.
+
+### Observation
+
+Only SA-1 completed its own write and test gate. SA-2, SA-3, and SA-4 did not independently complete theirs: the orchestrating session applied or wrote their code and ran `pytest -q` and `ruff check .` itself, so the subagents were isolated by file boundaries but not by who did the work. SA-2 also left `services/tasks.py` with an import and no functions using it for a while, with no test run in that state.
+
+Key divergences from the plan:
+
+- **422, not 400.** The plan assumed invalid tags return 400, but the existing `ValidationError` returns 422. I kept `utils/errors.py` unchanged and the contract, API, and tests use 422.
+- **`/api` prefix.** The blueprint is registered with `url_prefix="/api"`, so every real path starts with `/api`. The plan and subagent briefs omitted it, and the tests use the prefixed paths.
+- **Malformed JSON handling.** The first routes called `request.get_json()` directly, so a bad body would give Flask's own 400 or 415. I revised `add_tag_route` to use `get_json(silent=True)` and raise `ValidationError("body", "must be a JSON object")`, which returns 422 through the existing `AppError` handler.
+- **No repository layer.** `CLAUDE.md` describes routes → services → repositories, but no repository layer existed. SA-1 created a new `repositories/` package.
+
+### Final Validation
+
+- `pytest -q` — 64 passed (58 new, 6 existing).
+- `ruff check .` — All checks passed.
+- Route registrations — the four existing application rules are identical before and after; three rules were added.
+- Files created or modified — `repositories/__init__.py`, `repositories/task_tags.py`, `services/tasks.py`, `routes/api.py`, `tests/test_tags.py`. `tests/test_tasks.py`, `utils/errors.py`, and `app.py` were not changed.
+- Nothing was staged or committed.

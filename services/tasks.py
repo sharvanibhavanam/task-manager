@@ -1,5 +1,6 @@
 from datetime import date, datetime, timezone
 
+from repositories import task_tags
 from utils.errors import NotFoundError, ValidationError
 
 TASKS: dict[int, dict] = {
@@ -109,4 +110,112 @@ def get_overdue_tasks() -> list[dict]:
         if task["due_date"] is not None
         and _parse_due_date(task["due_date"]) < today
         and not task["done"]
+    ]
+
+def _validate_tag(tag: str) -> str:
+    """Validate a tag string.
+
+    A valid tag is a non-empty string, already lowercase, containing no
+    whitespace, and at most 32 characters. Tags are rejected, never normalized.
+
+    Args:
+        tag: The tag to validate.
+
+    Returns:
+        The tag, unchanged.
+
+    Raises:
+        ValidationError: If tag is not a string, is empty, is not lowercase,
+            contains whitespace, or is longer than 32 characters.
+    """
+    if not isinstance(tag, str):
+        raise ValidationError("tag", "must be a string")
+    if not tag:
+        raise ValidationError("tag", "cannot be empty")
+    if any(ch.isspace() for ch in tag):
+        raise ValidationError("tag", "cannot contain whitespace")
+    if tag != tag.lower():
+        raise ValidationError("tag", "must be lowercase")
+    if len(tag) > 32:
+        raise ValidationError("tag", "must be at most 32 characters")
+    return tag
+
+def add_tag(task_id: int, tag: str) -> tuple[list[str], bool]:
+    """Add a tag to a task. Adding an existing tag is idempotent.
+
+    The tag is validated before the task is looked up.
+
+    Args:
+        task_id: The unique identifier for the task.
+        tag: The tag to add.
+
+    Returns:
+        A tuple of the task's sorted tags and a flag that is True if the tag
+        was newly added, False if the task already had it.
+
+    Raises:
+        ValidationError: If the tag is invalid.
+        NotFoundError: If no task exists with the given ID.
+    """
+    _validate_tag(tag)
+    get_task(task_id)
+    created = task_tags.add_pair(task_id, tag)
+    return task_tags.list_tags_for_task(task_id), created
+
+def remove_tag(task_id: int, tag: str) -> None:
+    """Remove a tag from a task.
+
+    The tag is validated before the task is looked up.
+
+    Args:
+        task_id: The unique identifier for the task.
+        tag: The tag to remove.
+
+    Raises:
+        ValidationError: If the tag is invalid.
+        NotFoundError: If no task exists with the given ID, or the task does
+            not have the tag.
+    """
+    _validate_tag(tag)
+    get_task(task_id)
+    if not task_tags.pair_exists(task_id, tag):
+        raise NotFoundError("Tag")
+    task_tags.remove_pair(task_id, tag)
+
+def get_tags(task_id: int) -> list[str]:
+    """Retrieve the tags of a task.
+
+    Args:
+        task_id: The unique identifier for the task.
+
+    Returns:
+        The task's tags sorted alphabetically. Empty if none exist.
+
+    Raises:
+        NotFoundError: If no task exists with the given ID.
+    """
+    get_task(task_id)
+    return task_tags.list_tags_for_task(task_id)
+
+def list_tasks(tag: str | None = None) -> list[dict]:
+    """Retrieve all tasks, optionally filtered by tag.
+
+    Args:
+        tag: If provided, only tasks having this tag are returned. It is
+            validated first.
+
+    Returns:
+        A list of task records, ordered by task ID when filtering. Empty if
+        none match.
+
+    Raises:
+        ValidationError: If tag is provided but invalid.
+    """
+    if tag is None:
+        return list(TASKS.values())
+    _validate_tag(tag)
+    return [
+        TASKS[task_id]
+        for task_id in task_tags.list_task_ids_for_tag(tag)
+        if task_id in TASKS
     ]
