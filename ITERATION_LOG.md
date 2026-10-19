@@ -136,3 +136,33 @@ Final validation:
 
 
 
+
+---
+
+## Week 5 Drill 1 — Phase 3: Reject and Revise Plan
+
+### Prompt
+
+> Refactor the task repository so every method catches database exceptions and raises the appropriate AppError subclass instead. Follow the pattern in services/users.py. Follow CLAUDE.md.
+
+### What Claude Did
+
+Claude inspected the project and identified that it has no database or repository layer. Tasks are stored in an in-memory `TASKS` dictionary, and the existing error hierarchy contains `NotFoundError` and `ValidationError`. I explicitly rejected adding a new `DatabaseError` because it would unnecessarily expand the scope.
+
+Claude's initial plan proposed changes to `process_order()`, `get_overdue_tasks()`, and `create_task()`, but it did not explicitly require running `pytest -q` after each method. I rejected that plan and required four constraints: modify only `services/tasks.py`, handle errors in the service methods, create no new files, and run `pytest -q` after each method was updated. Claude's revised plan respected these constraints.
+
+The implementation added a `NotFoundError("Task")` check to `process_order()`, used `_parse_due_date()` in `get_overdue_tasks()` so malformed dates raise `ValidationError`, and changed task ID generation in `create_task()` to `max(TASKS, default=0) + 1`.
+
+### Observation
+
+The revised plan was more specific about file boundaries, the location of error handling, and test timing. The project did not have the database or repository layer assumed by the original prompt, so the implementation stayed within the existing in-memory service architecture. The final checks confirmed the expected error handling and empty-store behavior.
+
+### Final Validation
+
+- `pytest -q` — 6 passed.
+- `pytest -v` — 6 passed.
+- `ruff check .` — All checks passed.
+- `process_order(999)` — Raised `NotFoundError` with status 404.
+- Invalid stored due date — Raised `ValidationError` with status 422.
+- Empty task store — `create_task()` assigned ID 1.
+- Phase 3 implementation changes — Limited to `services/tasks.py`; earlier uncommitted `due_date` changes from Phase 1 remained in that file.
