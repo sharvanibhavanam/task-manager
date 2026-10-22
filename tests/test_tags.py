@@ -262,6 +262,7 @@ def test_regression_get_task_returns_record(client):
         "done": False,
         "user_id": 1,
         "due_date": None,
+        "priority": 3,
     }
 
 def test_regression_get_task_unknown_id_returns_404(client):
@@ -278,6 +279,7 @@ def test_regression_create_task_without_due_date(client):
         "done": False,
         "user_id": 1,
         "due_date": None,
+        "priority": 3,
     }
 
 def test_regression_create_task_with_due_date(client):
@@ -292,6 +294,7 @@ def test_regression_create_task_with_due_date(client):
         "done": False,
         "user_id": 1,
         "due_date": "2030-01-15",
+        "priority": 3,
     }
 
 def test_regression_overdue_route_is_not_captured_by_task_id_route(client):

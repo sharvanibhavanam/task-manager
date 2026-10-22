@@ -4,9 +4,9 @@ from repositories import task_tags
 from utils.errors import NotFoundError, ValidationError
 
 TASKS: dict[int, dict] = {
-    1: {"id": 1, "title": "Buy groceries",  "done": False, "user_id": 1, "due_date": None},
-    2: {"id": 2, "title": "Write report",   "done": False, "user_id": 1, "due_date": None},
-    3: {"id": 3, "title": "Call dentist",   "done": True,  "user_id": 2, "due_date": None},
+    1: {"id": 1, "title": "Buy groceries",  "done": False, "user_id": 1, "due_date": None, "priority": 3},
+    2: {"id": 2, "title": "Write report",   "done": False, "user_id": 1, "due_date": None, "priority": 3},
+    3: {"id": 3, "title": "Call dentist",   "done": True,  "user_id": 2, "due_date": None, "priority": 3},
 }
 
 def _parse_due_date(due_date: str) -> date:
@@ -19,12 +19,34 @@ def _parse_due_date(due_date: str) -> date:
         The parsed date.
 
     Raises:
-        ValidationError: If due_date is not a valid ISO-8601 date string.
+        ValidationError: If due_date is not a string or is not a valid ISO-8601
+            date string.
     """
     try:
         return date.fromisoformat(due_date)
-    except ValueError:
+    except (TypeError, ValueError):
         raise ValidationError("due_date", "must be a valid ISO-8601 date string")
+
+def _validate_priority(priority: int) -> int:
+    """Validate a task priority.
+
+    A valid priority is an integer from 1 (urgent) to 5 (low). Priorities are
+    rejected, never coerced.
+
+    Args:
+        priority: The priority to validate.
+
+    Returns:
+        The priority, unchanged.
+
+    Raises:
+        ValidationError: If priority is not an integer or is outside 1-5.
+    """
+    if isinstance(priority, bool) or not isinstance(priority, int):
+        raise ValidationError("priority", "must be an integer")
+    if not 1 <= priority <= 5:
+        raise ValidationError("priority", "must be between 1 and 5")
+    return priority
 
 def process_order(task_id: int) -> dict:
     """Mark a task as done.
@@ -71,25 +93,50 @@ def get_tasks_by_user(user_id: int) -> list[dict]:
     """
     return [task for task in TASKS.values() if task["user_id"] == user_id]
 
-def create_task(title: str, user_id: int, due_date: str | None = None) -> dict:
+def create_task(title: str, user_id: int, due_date: str | None = None, priority: int = 3) -> dict:
     """Create a new task.
 
     Args:
         title: The task's title.
         user_id: The unique identifier of the user the task belongs to.
         due_date: The task's due date as an ISO-8601 string, or None if unset.
+        priority: The task's priority from 1 (urgent) to 5 (low). Defaults to 3.
 
     Returns:
         The newly created task record.
 
     Raises:
-        ValidationError: If due_date is provided but is not a valid ISO-8601 date string.
+        ValidationError: If due_date is provided but is not a valid ISO-8601 date string,
+            or if priority is not an integer between 1 and 5.
     """
     if due_date is not None:
         _parse_due_date(due_date)
+    _validate_priority(priority)
     new_id = max(TASKS, default=0) + 1
-    TASKS[new_id] = {"id": new_id, "title": title, "done": False, "user_id": user_id, "due_date": due_date}
+    TASKS[new_id] = {"id": new_id, "title": title, "done": False, "user_id": user_id, "due_date": due_date, "priority": priority}
     return TASKS[new_id]
+
+def update_task(task_id: int, priority: int) -> dict:
+    """Update a task's priority.
+
+    The task is looked up before the priority is validated, so a missing task
+    raises NotFoundError even if the priority is also invalid.
+
+    Args:
+        task_id: The ID of the task to update.
+        priority: The new priority from 1 (urgent) to 5 (low).
+
+    Returns:
+        The updated task dictionary.
+
+    Raises:
+        NotFoundError: If the task does not exist.
+        ValidationError: If priority is not an integer between 1 and 5.
+    """
+    task = get_task(task_id)
+    _validate_priority(priority)
+    task["priority"] = priority
+    return task
 
 def get_overdue_tasks() -> list[dict]:
     """Retrieve all tasks that are overdue.
@@ -197,25 +244,33 @@ def get_tags(task_id: int) -> list[str]:
     get_task(task_id)
     return task_tags.list_tags_for_task(task_id)
 
-def list_tasks(tag: str | None = None) -> list[dict]:
-    """Retrieve all tasks, optionally filtered by tag.
+def list_tasks(tag: str | None = None, priority: int | None = None) -> list[dict]:
+    """Retrieve all tasks, optionally filtered by tag and/or priority.
 
     Args:
         tag: If provided, only tasks having this tag are returned. It is
-            validated first.
+            validated before filtering.
+        priority: If provided, only tasks with this priority are returned. It
+            is validated before filtering.
 
     Returns:
         A list of task records, ordered by task ID when filtering. Empty if
         none match.
 
     Raises:
-        ValidationError: If tag is provided but invalid.
+        ValidationError: If tag or priority is provided but invalid.
     """
+    if priority is not None:
+        _validate_priority(priority)
     if tag is None:
-        return list(TASKS.values())
-    _validate_tag(tag)
-    return [
-        TASKS[task_id]
-        for task_id in task_tags.list_task_ids_for_tag(tag)
-        if task_id in TASKS
-    ]
+        tasks = list(TASKS.values())
+    else:
+        _validate_tag(tag)
+        tasks = [
+            TASKS[task_id]
+            for task_id in task_tags.list_task_ids_for_tag(tag)
+            if task_id in TASKS
+        ]
+    if priority is None:
+        return tasks
+    return [task for task in tasks if task["priority"] == priority]
